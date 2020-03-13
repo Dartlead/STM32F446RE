@@ -1,0 +1,81 @@
+Basic Timer (Timer Modules 6 and 7)
+
+The basic timers (timer modules 6 and 7) are 16-bit up counters that can be driven by a clock that can be divided
+by a programmable prescaler. Upon completion of a full count cycle (counter overflow), the counter generates what
+is called an update event or UEV. This signal is akin to the usual counter output signal that is driven high on
+counter overflow.
+
+Note: Currently slave timers have not been implemented.
+
+-------------------------------------------------------------------------------------------------------------------
+How to Use This Driver
+-------------------------------------------------------------------------------------------------------------------
+1) Create a configuration struct (variable of type BTIM_cnfg) for a particular basic timer module
+	(BTIM_module_TIM6 or BTIM_module_TIM7). The explanation of the configuration options are at the bottom of this
+	txt document.
+2) Call BTIM_init_timer() and pass in the configuration struct and the timer module number.
+3) Call BTIM_start_timer() to start the timer.
+4) Call BTIM_stop_timer() to stop the timer.
+5) Call BTIM_read_timer() to read the timer's current count.
+
+-------------------------------------------------------------------------------------------------------------------
+Basic Timer Configuration Parameters Explained
+-------------------------------------------------------------------------------------------------------------------
+auto_reload_preload_en (auto reload preload enable)
+	Preloading of the auto reload value allows changes to the @auto_reload_val (i.e. the max count value) to be
+	buffered - the timer will not be made aware of the new auto reload value until after an update event. Without
+	preloading, changes to the auto reload value are not buffered - the timer is immediately made aware of changes
+	to the auto reload value.
+	If 'true', enables preloading of the auto reload value.
+	If 'false, disables preloading of the auto reload value.
+
+one_pulse_mode_en (one pulse mode enable)
+	One pulse mode allows the timer to stop counting at an update event (it will still generate the update event
+	signal).
+	If 'true', enables one pulse mode.
+	If 'false', disables one pulse mode.
+
+update_request_src_en (update request source enable)
+	An update request source restricts update event generation to only the timer's overflow/underflow. Without the
+	restriction, the timer's overflow/underflow, a program, or a slave mode controller can all generate update
+	events.
+	If 'true', only timer overflow/underflow can generate an update event.
+	If 'false', timer overflow/underflow, a program, or a slave mode controll can generate an update event.
+
+update_event_dis (update event disable)
+	Update event disable prevents (on a module level) the update event signal from being generated. As such, if this
+	option is desired, the @update_request_src_en option is disregarded because nothing can generate an update
+	event.
+	If 'true', disables update event signal generation.
+	If 'false', enables update event signal generation.
+
+DMA_request_en (direct memory access request enable)
+	Allows the timer to generate a DMA request signal on an update event.
+	If 'true', the timer will generate a DMA request signal on an update event.
+	If 'false', the timer will not generate a DMA request signal on an update event.
+
+IRQ_en (interrupt request enable)
+	Allows the timer to generate an interrupt request signal on an update event.
+	If 'true', the timer will generate an IRQ request on an update event.
+	If 'false', the timer will not generate an IRQ request on an update event.
+
+auto_reload_val (auto reload value)
+	The value that the timer counts to. A value of 0 will disable the timer.
+
+	Restrictions:
+		- Since the timer is a 16-bit timer, the value must be between 1 and 65535, inclusive.
+
+timer_freq (timer frequency)
+	The frequency of the clock that drives the timer (i.e. how many timer ticks occur every second).
+
+IRQ_priority (interrupt request priority)
+	The priority of the interrupt request that is generated on an update event if the @IRQ_en option is 'true'.
+
+	Restrictions:
+		- Must be between 0 and 15, inclusive.
+
+IRQ_handler (interrupt request handler)
+	The handler of the interrupt request that is generated on an update event if the @IRN_en option is 'true'.
+
+	Restrictions:
+		- Can not be NULL.

@@ -1,0 +1,461 @@
+DMA Controller
+
+The basis of a DMA transfer is the stream, a part of the DMA controller that facilitates the transfer of data from
+the source to a FIFO then to the destination. Depending on the direction, the data will travel into the FIFO from
+the source and upon direction from a peripheral or the DMA controller itself, the contents of the FIFO will be
+emptied out into the destination.
+Each DMA controller has eight streams and each stream can service requests from 8 channels (i.e. take direction to
+empty the contents of the FIFO to the destination).
+
+-------------------------------------------------------------------------------------------------------------------
+How to Use This Driver
+-------------------------------------------------------------------------------------------------------------------
+1) Create a configuration struct (variable of type DMA_stream_cnfg) for a particular DMA controller (DMA1 or DMA2)
+	and a particular stream (DMA_Stream0 - DMA_Stream7). The explanation of the configuration options are at the
+	bottom of this txt document.
+2) Call DMA_configure_stream() and pass in the configuration struct, the stream number and the DMA controller
+	number.
+3) Start the DMA transfer with the DMA_enable_stream() function.
+
+-------------------------------------------------------------------------------------------------------------------
+Stopping/Restarting a DMA Transfer
+-------------------------------------------------------------------------------------------------------------------
+The DMA transfer can be stopped in one of two ways:
+1) The specified number of data chunks to transfer (the n_data_to_trans configuration struct option) has reached
+	zero and the controller stops itself.
+2) The user calls DMA_disable_stream() and forcibly ends the transfer even if the number of data chunks to transfer
+	has not yet reached zero.
+
+In case (1), the transfer is done. If the transfer is to be restarted, it will start from the configuration options
+that is was initially configured with. Of course it can be re-configured, but barring that, it will start from the
+original configuration options.
+
+In case (2), the transfer has not been finished and can be restarted or continued.
+	To restart the transfer (i.e. start the transfer again with its original configuration) the following calls must
+	happen:
+		DMA_transf_complete_clear_IRQ() - clears the transfer complete status flag that the DMA_disable_stream() call
+			forcibly sets high. The stream can not be restarted if the complete status flag is currently high.
+		DMA_stream_update_transf_complete_IRQ() - re-enables (or disables) the transfer complete interrupt request
+			configuration option for the stream. ***
+		DMA_stream_update_half_transfer_IRQ() - re-enables (or disables) the half transfer complete interrupt request
+			configuration option for the stream. ***
+		DMA_stream_update_transf_error_IRQ() - re-enables (or disables) the transfer error interrupt request
+			configuration option for the stream. ***
+		DMA_stream_update_direct_mode_error_IRQ() - re-enables (or disables) the direct mode error interrupt request
+			configuration option for the stream. ***
+		DMA_stream_update_FIFO_error_IRQ() - re-enables (or disables) the direct mode error interrupt request
+			configuration option for the stream. ***
+
+		*** These calls may or may not be necessary. The DMA_disable_stream() call clears any interrupt request
+			enables that were present in the original configuration request. If any were originally desired, they
+			would have to be re-enabled with the some combination of these functions. If none were originally desired,
+			then none of these calls are required.
+
+	To continue the DMA transfer (i.e. start it up from where it was stopped), the same steps as the transfer
+	restart are required (i.e. clearing the transfer complete flag and potentially updating the interrupt request
+	enables) as well as the following calls:
+		DMA_stream_update_n_data_to_trans() - Updates the stream with a new amount of data to transfer. At the time
+			the stream is stopped, a certain amount of data will have been transferred. We don't want this data to be
+			transferred again so the number of data chunks that the stream is responsible for transferring must be
+			updated. The amount that has already been transferred is returned by the DMA_disable_stream() call.
+		DMA_stream_update_peri_addr() - Updates the stream with a new source or destination address. ***
+		DMA_stream_update_mem0_addr() - Updates the stream with a new source or destination address. ***
+		DMA_stream_update_mem1_addr() - If the memory location 0 requires an address update and the double-buffer
+			mode is enabled, then this call will update the memory location 1.
+		
+		*** These calls may or may not be necessary. When the DMA has stopped, the amount of data that has already
+			been transferred may or may not make the original source/destination addresses invalid. For example, say
+			we are transferring external data from a peripheral register to a memory buffer. If half of the transfer
+			had been done when DMA_disable_stream() had been called, half of the destination memory buffer has been
+			successfully written to. Thus we need to update the destination address to the halfway mark of the memory
+			buffer to avoid overwriting the data already written.
+
+-------------------------------------------------------------------------------------------------------------------
+DMA Interrupts
+-------------------------------------------------------------------------------------------------------------------
+The five interrupt options for the DMA controllers are as follows:
+	- Interrupt on transfer complete
+	- Interrupt on transfer halfway complete
+	- Interrupt on a transfer error
+	- Interrupt on a direct mode error
+	- Interrupt on a FIFO error
+
+General Notes:
+	- The latency on the interrupt handler is pretty big (a sacrifice for ease-of-use) thus when the user-provided
+		ISR is entered expect to a be a bit behind where things were in the actual hardware.
+
+Transfer Complete & Transfer Halfway Complete Interrupts Intricacies:
+	- When the transfer complete flag is high, the halfway complete flag is also high (BUT only the flags that have
+		had their interrupts enabled in the configuration struct will actually trigger an interrupt - i.e. if an
+		interrupt is requested on transfer complete, an interrupt will occur on transfer complete and not half
+		transfer complete but both flags will be high at the time of the transfer complete interrupt being active).
+		Thus the ISR has to have logic to handle this fact.
+
+	- When the DMA_disable_stream() call is made, the transfer complete flag will be set high and the halfway
+		transfer flag may or may not be set (it will be set if half of the requested data has been transferred at
+		the time the disabe stream call is made, it won't be set otherwise). The act of this call bringing the
+		transfer complete flag high will NOT trigger a requested transfer complete interrupt. However, if half of the
+		transfer has been done before the disable stream call was made, the half transfer interrupt will be
+		triggered.
+
+-------------------------------------------------------------------------------------------------------------------
+DMA Channel-Stream Mapping
+-------------------------------------------------------------------------------------------------------------------
+DMA Controller 1 Stream-Channel Relationship
+            Stream 0    Stream 1     Stream 2     Stream 3    Stream 4    Stream 5     Stream 6     Stream 7
+--------------------------------------------------------------------------------------------------------------
+Channel 0 | SPI3_RX   | SPDIFRX_DT | SPI3_RX    | SPI2_RX   | SPI2_TX   | SPI3_TX    | SPDIFRX_CS | SPI3_TX  |
+--------------------------------------------------------------------------------------------------------------
+Channel 1 | I2C1_RX   | I2C3_RX    | TIM7_UP    | N/A       | TIM7_UP   | I2C1_RX    | I2C1_TX    | I2C1_TX  |
+--------------------------------------------------------------------------------------------------------------
+Channel 2 | TIM4_CH1  | N/A        | FMPI2C1_RX | TIM4_CH2  | N/A       | FMPI2C1_RX | TIM4_UP    | TIM4_CH3 |
+--------------------------------------------------------------------------------------------------------------
+Channel 3 | N/A       | TIM2_UP/   | I2C3_RX    | N/A       | I2C3_TX   | TIM2_CH1   | TIM2_CH2/  | TIM2_UP/ |
+          |           | TIM2_CH3   |            |           |           |            | TIM2_CH4   | TIM2_CH4 |
+--------------------------------------------------------------------------------------------------------------
+Channel 4 | UART5_RX  | USART3_RX  | UART4_RX   | USART3_TX | UART4_TX  | USART2_RX  | USART2_TX  | UART5_TX |
+--------------------------------------------------------------------------------------------------------------
+Channel 5 | N/A       | N/A        | TIM3_CH4/  | N/A       | TIM3_CH1/ | TIM3_CH2   | N/A        | TIM3_CH3 |
+          |           |            | TIM3_UP    |           | TIM3_TRIG |            |            |          |
+--------------------------------------------------------------------------------------------------------------
+Channel 6 | TIM5_CH3/ | TIM5_CH4/  | TIM5_CH1   | TIM5_CH4/ | TIM5_CH2  | N/A        | TIM5_UP    | N/A      |
+          | TIM5_UP   | TIM5_TRIG  |            | TIM5_TRIG |           |            |            |          |
+--------------------------------------------------------------------------------------------------------------
+Channel 7 | N/A       | TIM6_UP    | I2C2_RX    | I2C2_RX   | USART3_TX | DAC1       | DAC2       | I2C2_TX  |
+
+DMA Controller 2 Stream-Channel Relationship
+            Stream 0    Stream 1    Stream 2    Stream 3   Stream 4     Stream 5    Stream 6    Stream 7
+--------------------------------------------------------------------------------------------------------------
+Channel 0 | ADC1      | SAI1_A    | TIM8_CH1/ | SAI_A    | ADC1       | SAI1_B    | TIM1_CH1/ | SAI2_B     |
+          |           |           | TIM8_CH2/ |          |            |           | TIM1_CH2/ |            |
+          |           |           | TIM8_CH3  |          |            |           | TIM1_CH3  |            |
+--------------------------------------------------------------------------------------------------------------
+Channel 1 | N/A       | DCMI      | ADC2      | ADC2     | SAI1_B     | N/A       | N/A       | DCMI       |
+--------------------------------------------------------------------------------------------------------------
+Channel 2 | ADC3      | ADC3      | N/A       | N/A      | N/A        | N/A       | N/A       | N/A        |
+--------------------------------------------------------------------------------------------------------------
+Channel 3 | SPI1_RX   | N/A       | SPI1_RX   | SPI1_TX  | SAI2_A     | SPI1_TX   | SAI2_B    | QUADSPI    |
+--------------------------------------------------------------------------------------------------------------
+Channel 4 | SPI4_RX   | SPI4_TX   | USART1_RX | SDIO     | N/A        | USART1_RX | SDIO      | USART1_TX  |
+--------------------------------------------------------------------------------------------------------------
+Channel 5 | N/A       | USART6_RX | USART6_RX | SPI4_RX  | SPI4_TX    | N/A       | USART6_TX | USART6_TX  |
+--------------------------------------------------------------------------------------------------------------
+Channel 6 | TIM1_TRIG | TIM1_CH1  | TIM1_CH2  | TIM1_CH1 | TIM1_CH4/  | TIM1_UP   | TIM1_CH3  | N/A        |
+          |           |           |           |          | TIM1_TRIG/ |           |           |            |
+          |           |           |           |          | TIM1_COM   |           |           |            |
+--------------------------------------------------------------------------------------------------------------
+Channel 7 | N/A       | TIM8_UP   | TIM8_CH1  | TIM8_CH1 | TIM8_CH3   | N/A       | N/A       | TIM8_CH4/  |
+          |           |           |           |          |            |           |           | TIM8_TRIG/ |
+          |           |           |           |          |            |           |           | TIM8_COM   |
+
+
+-------------------------------------------------------------------------------------------------------------------
+DMA Controller Configuration Parameters Explained
+-------------------------------------------------------------------------------------------------------------------
+flow_cntrlr_mode_en (flow controller mode enable)
+	Flow controller mode allows the peripheral (acting as the source or destination of the transfer) to dictate the
+	number of data items transferred as opposed to the DMA controller. As such, this mode disregards the
+	@n_data_to_trans parameter that would normally configure the DMA controller and be responsible for dictating the
+	number of data items moved.
+	If 'true', enables flow controller mode.
+	If 'false', disables flow controller mode.
+
+	Restrictions:
+		- If enabled, the @assoc_channel must resolve to 'SDIO' as this peripheral is the only one carrying the
+			proper signaling to dicatate the number of data elements to transfer.
+		- If enabled, the @transf_dir can not be 'DMA_transf_dir_mem_mem'.
+		- If enabled, the @circular_mode_en can not be 'true'.
+
+direct_mode_en (direct mode enable)
+	Direct mode allows the DMA controller to bypass the threshold level of the FIFO that sits inbetween the stream's
+	source data and the destination address. Normally, the FIFO would have to be filled up to the required threshold
+	level with data from the transfer source before being discharged and the destination receiving said data. As
+	such, this mode disregards the @FIFO_thresh parameter.
+	If 'true', enables direct mode
+	If 'false', disables direct mode
+
+	Restrictions:
+		- If enabled, the @transf_dir can not be 'DMA_transf_dir_mem_mem'.
+		- If enabled, "the source and destination transfer widths are equal and both defined by the PSIZE[1:0]"
+		- If enabled, the @burst_mode_en must be 'false'.
+
+circular_mode_en (circular mode enable)
+	Circular mode allows the DMA controller to handle continuous data flows. This describes a situation where after
+	a DMA transfer (of a predetermined size), the number of data items to be transferred is automatically reloaded
+	with the initial programmed value and the DMA requests continued to be served.
+	If 'true', enables circular mode.
+	If 'false', disables circular mode.
+
+	Restrictions:
+		- If enabled, the @flow_cntrlr_mode_en must be 'false'.
+		- If enabled, the @transf_dir can not be 'DMA_transf_dir_mem_mem'.
+		- If enabled and @burst_mode_en is 'true', the following equation must be satisfied:
+			@n_data_to_trans = multiple of (@mem_beats * (@mem_data_size/@peri_data_size))
+			where @mem_data_size/@peri_data_size = 1, 2, 4, 1/2, or 1/4
+		- If enabled and @burst_mode_en is 'true', the @n_data_to_trans parameter must be a multiple of the
+			@peri_beats * peri_data_size.
+
+double_buff_mode_en (double buffer mode enable)
+	Double buffer mode allows the DMA controller to use two memory locations (both as either a source or destination
+	of the DMA transfer) and swap between the memory locations between transactions. This allows a program to
+	safely interact with one of the memory locations while the other is being filled up/sourced from. Note that when
+	this mode is enabled, circular mode is also automatically enabled. Note that a transfer is finished upon
+	successful transfer of data for one of the two memory locations, thus the transfer complete flag will be set
+	even if both memory locations have not both been processed.
+	If 'true', enables double buffer mode.
+	If 'false', disables double buffer mode.
+
+	Restrictions:
+		- If enabled, the @transf_dir can not be 'DMA_transf_dir_mem_mem'.
+		- If enabled, the @circular_mode_en must be 'true'.
+
+peri_incr_mode_en (peripheral pointer increment mode enable)
+	Peripheral pointer increment mode allows the DMA controller to automatically post-increment the peripheral
+	address (@peri_addr parameter) after a transfer. The size of the incrementation depends on the @peri_data_size
+	parameter where a value of '8' (byte) increments by 1, '16' (half-word) increments by 2, and '32' (word)
+	increments by 4. Note that in a memory-to-memory transfer direction, this mode would increment the pointer
+	representing the source memory location. Note that if the post-increment would cause the peripheral pointer to
+	become out-of-bounds (i.e. outside the data register of a peripheral or past the end of an array) behavior is
+	undefined. Seemingly though, if the end of an array is reached, the peripheral pointer will decrement back to
+	the start of the array.
+	If 'true', enables peripheral pointer increment mode.
+	If 'false', disables peripheral pointer increment mode.
+
+mem_incr_mode_en (memory pointer increment mode enable)
+	Memory pointer increment mode allows the DMA controller to automatically post-increment the memory address
+	(@mem0_addr parameter) after a transfer. The size of the incrementation depends on the @mem_data_size parameter
+	where a value of '8' (byte) increments by 1, '16' (half-word) increments by 2, and '32' (word) increments by 4.
+	Note that in a memory-to-memory transfer direction, this mode would increment the pointer representing the
+	destination memory location. Note that if the post-increment would cause the memory pointer to become
+	out-of-bounds (i.e. past the end of an array) behavior is undefined. Seemingly though, if the end of an array is
+	reached, the memory pointer will decrement back to the start of the array.
+	If 'true', enables memory pointer increment mode.
+	If 'false', disables memory pointer increment mode.
+
+burst_mode_en (burst mode enable)
+	Burst mode allows the DMA controller to generate incremental burst transfers of 4, 8, or 16 beats to read from
+	or write to the peripheral or memory location. The number of beats per burst transfer is determined by the
+	@peri_beats and @mem_beats parameters).
+
+
+	If 'true', enables burst mode for the source, destination, or both.
+	If 'false', disables burst mode for the source, destination, or both.
+
+	Restrictions:
+		- If enabled, the @direct_mode_en parameter must be 'false'.
+		- If enabled, the @peri_addr and @mem0_addr parameters must be chosen so as to ensure that all transfers
+			within a burst block are aligned on the address boundary equal to the size of the transfer.
+		- If enabled, the bursts must not cross the 1 Kbyte address boundary because the minimum address space that
+			can be allocated to a single bus slave is 1 Kbyte. Breaking this rule causes an AHB error which is not
+			reported by the DMA registers.
+
+transf_complete_IRQ_en (transfer complete interrupt request enable)
+	Enables an interrupt on a transfer completion. A transfer completion can happen when the DMA controller has
+	successfully transferred the requested number of data chunks or the user has manually disabled the DMA
+	controller (in which case the controller itself will drive the flag high).
+	If 'true', enables the transfer complete IRQ.
+	If 'false', disables the transfer complete IRQ.
+
+half_transf_IRQ_en (half transfer interrupt request enable)
+	Enables an interrupt on a transfer half-way completion. Note that by the time the interrupt is processed and the
+	user-provided ISR is entered, the number of data elements left to transfer will most definitely be significantly
+	less than half due to the latency of processing the halfway transfer interrupt signal. A half transfer complete
+	happens when the DMA controller has successfully ransferred half of the requested number of data chunks.
+	If 'true', enables the half transfer IRQ.
+	If 'false', disables the transfer complete IRQ.
+
+transf_error_IRQ_en (transfer error interrupt request enable)
+	Enables an interrupt on a transfer error. A transfer error is when either a bus error occurs during a DMA read
+	or write access or a write access is requested by software on a memory address register in double-buffer mode
+	when the stream is enabled and the current target memory location is the one impacted by the write.
+	If 'true', enables the transfer error IRQ.
+	If 'false', disables the transfer error IRQ.
+
+direct_mode_error_IRQ_en (direct mode error interrupt request enable)
+	Enables an interrupt on a direct mode error. A direct mode error is when a DMA request occurs while the previous
+	data have not yet been fully transferred into the memory (because the memory bus was not granted).
+	If 'true', enables the direct mode error IRQ.
+	If 'false', disables the direct mode error IRQ.
+
+	Restrictions:
+		- This can only be set if the @transf_dir is 'DMA_transf_dir_peri_mem', the @direct_mode_en is 'true', and
+			the @mem_incr_mode_en is 'false'.
+
+FIFO_error_IRQ_en (FIFO error interrupt request enable)
+	Enables an interrupt on a FIFO error. A FIFO error is when either a FIFO underrun condition is detected, a FIFO
+	overrun condition is detected (no detection in memory-to-memory mode because requests and transfers are
+	internally managed by the DMA), or the stream is enabled while the FIFO threshold level is not compatible with
+	the size of the memory burst. In the case of the stream being enabled with an improper FIFO threshold level, the
+	controller will automatically disable itself.
+	If 'true', enables the FIFO error IRQ.
+	If 'false', disables the FIFO error IRQ.
+
+transf_dir (transfer direction)
+	The direction of the DMA transfer. Available options are:
+		peripheral-to-memory, source is the @peri_addr and destination is the @mem0_addr. On a peripheral request,
+			data from the FIFO is drained into the destination then the FIFO is reloaded with data from the source.
+		memory-to-peripheral, source is the @mem0_addr and destination is the @peri_addr On a peripheral request,
+			data from the FIFO is drained into the destination then the FIFO is reloaded with data from the source.
+		memory-to-memory,     source is the @peri_addr and destination is the @mem0_addr. On enabling the stream,
+			data from the FIFO is drained into the destination then the FIFO is reloaded with data from the source.
+
+		Restrictions:
+			- If memory-to-memory is chosen, the DMA controller hosting the stream must be 'DMA_controller2'.
+			- If peripheral-to-memory is chosen, the @peri_addr must resolve to a peripheral's register else the DMA
+				controller will trigger a transfer error (and an interrupt if configured to do so) and cease operation.
+
+stream_prio (stream priority)
+	The priority of the stream being configured. Because each DMA controller manages 8 DMA streams, this parameter
+	allows proper arbitration between the 8 streams. In the case where a DMA controller has two active streams, only
+	the stream with the higher priority will be given arbitration and allowed to proceed. In the case where both
+	active streams have the same priority, the stream with the lower number will be given arbitration.
+
+FIFO_thresh (FIFO threshold level)
+	The level of the 4-word FIFO that must be reached before the data is written to the destination of the DMA
+	transfer. If @direct_mode_en is 'false', this parameter dictates how full of data from the transfer souce the
+	FIFO must be before it is discharged into the destination. Note that in the case that the DMA transfer finishes
+	(i.e. DMA_disable_stream() is called or the @n_data_to_trans parameter has been reached) but there is still data
+	in the FIFO (but not enough to satisfy the threshold level), the DMA controller will continue to transfer the
+	remaining data to the destination.
+
+	Restrictions:
+		- If @burst_mode_en is 'true', the FIFO threshold must exactly match an integer number of memory burst
+			transfers.
+		- If @burst_mode_en is 'true', the burst size * the data size (both @peri_data_size and @mem_data_size) must
+			not exceed the FIFO size.
+		- A FIFO threshold of 'DMA_FIFO_1_4_full' is forbidden when:
+			- @mem_data_size = '8' (byte) while @mem_beats = 'DMA_transf_type_8beat_burst'
+			- @mem_data_size = '8' (byte) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_4beat_burst'
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_8beat_burst'
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '32' (word)
+		- A FIFO threshold of 'DMA_FIFO_1_2_full' is forbidden when:
+			- @mem_data_size = '8' (byte) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_8beat_burst'
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '32' (word)
+		- A FIFO threshold of 'DMA_FIFO_3_4_full' is forbidden when:
+			- @mem_data_size = '8' (byte) while @mem_beats = 'DMA_transf_type_8beat_burst'
+			- @mem_data_size = '8' (byte) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '16' (half-word)
+			- @mem_data_size = '32' (word)
+		- A FIFO threshold of 'DMA_FIFO_full' is forbidden when:
+			- @mem_data_size = '16' (half-word) while @mem_beats = 'DMA_transf_type_16beat_burst'
+			- @mem_data_size = '32' (word) while @mem_beats = 'DMA_transf_type_8beat_burst'
+			- @mem_data_size = '32' (word) while @mem_beats = 'DMA_transf_type_16beat_burst'
+
+peri_beats (peripheral number of beats per burst)
+	The number of beats in a burst that the peripheral port can take advantage of. If the @transf_dir is
+	'DMA_transf_dir_peri_mem' or 'DMA_transf_dir_mem_mem', this value represents the number of beats the DMA
+	controller can use per burst to read from the peripheral. If the @transf_dir is 'DMA_transf_dir_mem_peri', this
+	value represents the number of beats the DMA controller can use per burst to write to the peripheral. Note that,
+	for data coherence, each group of transfers that make up the burst are indivisible; the AHB transfers are
+	locked and the arbiter of the AHB bus matrix does not degrant the DMA master during the burst sequence.
+
+	Restrictions:
+		- The bursts MUST NOT cross the 1 Kbyte address boundary as this would cross the minimum 1 Kbyte address
+			space allocated to any single slave.
+		- If @burst_mode_en is 'true', @direct_mode_en is 'false', and (@peri_beats * @peri_data_size) = 4 words
+			a @FIFO_thresh value of 'DMA_FIFO_3_4_full' is forbidden with @peri_data_size = '1', '2', or '4' and
+			@peri_beats = 'DMA_transf_type_4beat_burst', 'DMA_transf_type_8beat_burst', or
+			'DMA_transf_type_16beat_burst'.
+
+mem_beats (memory location number of beats per burst)
+	The number of beats in a burst that the memory port can take advantage of. If the @transf_dir is
+	'DMA_transf_dir_mem_peri', this value represents the number of beats the DMA controller can use per burst to
+	read from the memory location. If the @transf_dir is 'DMA_transf_dir_peri_mem' or 'DMA_transf_dir_mem_mem', this
+	value represents the number of beats the DMA controller can use per burst to write to the memory location. Note
+	that, for data coherence, each group of transfers that make up the burst are indivisible; the AHB transfers are
+	locked and the arbiter of the AHB bus matrix does not degrant the DMA master during the burst sequence.
+
+	Restrictions:
+		- The bursts MUST NOT cross the 1 Kbyte address boundary as this would cross the minimum 1 Kbyte address
+			space allocated to any single slave.
+
+double_buff_cur_tar (double buffer mode current target)
+	The current memory location target (i.e. the memory location that will get read from/written to) in double
+	buffer mode.
+
+	Restrictions:
+		- Must be either '0' for memory location 0 or '1' for memory location 1.
+		- @double_buff_mode_en must be 'true' for this parameter to do anything.
+
+peri_data_size (peripheral data size)
+	The size of the data coming in from/out of the peripheral port. This value (along with the @n_data_to_transf
+	parameter) determines how many bytes make up the DMA transfer.
+
+	Restrictions:
+		- Must be either '8' for byte, '16' for half-word, or '32' for word.
+
+mem_data_size (memory location data size)
+	The size of the data coming in from/out of the memory port. This value (along with the @n_data_to_transf
+	parameter) determines how many bytes make up the DMA transfer.
+
+	Restrictions:
+		- Must be either '8' for byte, '16' for half-word, or '32' for word.
+
+n_data_to_trans (number of data items to transfer)
+	The number of data items that are to be transferred when the DMA controller is not in peripheral flow controller
+	mode (the @flow_cntrlr_mode_en parameter = false). When the controller is in peripheral flow controller mode,
+	this field is disregarded and instead provided by the peripheral. The data width of these items is equal to the
+	width of the peripheral data (the @peri_data_size parameter).
+
+	Restrictions:
+		- Must be between 1 and 65535.
+
+assoc_channel (associated channel)
+	Each stream can be "connected" to one of 8 channels (think peripherals). This parameter determines (if the
+	what peripheral the DMA controller will be reading from/writing to (if the @transf_dir is not
+	'DMA_transf_dir_mem_mem). Refer to the "DMA Channel-Stream Mapping" section of this document for a list of the
+	possible options per stream.
+
+	Restrictions:
+		- Must be between 0 and 7, inclusive.
+
+IRQ_priority (interrupt request priority)
+	The priority of the interrupt request tied to that particular DMA controller and stream.
+
+	Restrictions:
+		- Must be between 0 and 15, inclusive.
+
+peri_addr (peripheral address)
+	The address that the peripheral port will be reading from/writing to. If the @transf_dir is
+	'DMA_transf_dir_peri_mem' or 'DMA_transf_dir_mem_mem' this value is the address of the source of the DMA
+	transfer. If the @transf_dir is 'DMA_transf_dir_mem_peri' this value is the address of the destination of the
+	DMA transfer.
+
+	Restrictions:
+		- If @burst_mode_en is 'true', this address pointer and the @mem0_addr address must be chosen so as to
+			ensure that all transfers within a burst block are aligned on the address boundary equal to the size of
+			the transfer.
+
+mem0_addr (memory location 0 address)
+	The address that the memory port will be reading from/writing to. If the @transf_dir is
+	'DMA_transf_dir_mem_peri' this value is the address of the source of the DMA transfer. If the @transf_dir is
+	'DMA_transf_dir_peri_mem' or 'DMA_transf_dir_mem_mem' this value is the address of the destination of the DMA
+	transfer.
+
+	Restrictions:
+		- If @burst_mode_en is 'true', this address pointer and the @peri_addr address must be chosen so as to
+			ensure that all transfers within a burst block are aligned on the address boundary equal to the size of
+			the transfer.
+
+mem1_addr (memory location 1 address)
+	The address that the memory port will be additionally reading from/writing to if the @double_buff_mode_en is
+	'true'. If the @transf_dir is 'DMA_transf_dir_mem_peri' this value is the address of one of the two alternating
+	sources of the DMA transfer. If the @transf_dir is 'DMA_transf_dir_peri_mem' or 'DMA_transf_dir_mem_mem' this
+	value is one of the two alternating addresses of the destination of the DMA transfer.
+
+	Restrictions:
+		- If @burst_mode_en is 'true', this address pointer and the @peri_addr address must be chosen so as to
+			ensure that all transfers within a burst block are aligned on the address boundary equal to the size of
+			the transfer.
+
+IRQ_handler (interrupt request handler)
+	The handler for the stream's interrupt if any combination of 'transf_complete_IRQ_en', 'half_transf_IRQ_en',
+	'transf_error_IRQ_en', 'direct_mode_error_IRQ_en', or 'FIFO_error_IRQ_en' is true. If none of the IRQ enables
+	are 'true', this does nothing.
+
+	Restrictions:
+		- Can not be NULL

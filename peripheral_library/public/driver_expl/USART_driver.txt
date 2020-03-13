@@ -1,0 +1,62 @@
+-------------------------------------------------------------------------------------------------------------------
+USART Pin Configurations Explained
+-------------------------------------------------------------------------------------------------------------------
+Each USART channel has multiple sets of pins that it can use for its TX or RX signals. The breakdown of which
+channel can use what pins and the associated pin configuration number is described below.
+
+USART1
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PA9     | TX - PB6     | TX - N/A
+RX - PA10    | RX - PB7     | RX - N/A
+
+USART2
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PA2     | TX - PD5     | TX - N/A
+RX - PA3     | RX - PD6     | RX - N/A
+
+USART3
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PB10    | TX - PC10    | TX - PD8
+RX - PB11    | RX - PC5     | RX - PD9
+
+UART4
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PA0     | TX - PC10    | TX - N/A
+RX - PA1     | RX - PC11    | RX - N/A
+
+UART5
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PC12    | TX - PE7     | TX - N/A
+RX - PD2     | RX - PE8     | RX - N/A
+
+USART6
+Pin Config 1 | Pin Config 2 | Pin Config 3
+TX - PC6     | TX - PG14    | TX - N/A
+RX - PC7     | RX - PG9     | RX - N/A
+
+Note that USART3 TX can also be routed to PC11 but there is no "matching" RX configuration so it is purposely left
+out.
+
+-------------------------------------------------------------------------------------------------------------------
+USART Channel Configuration Parameters Explained
+-------------------------------------------------------------------------------------------------------------------
+IrDA_mode_en (serial infrared data association encoder decoder mode enable)
+	The Serial IrDA (infrared data association) encoder decoder...
+
+smartcard_mode_en (smartcard mode enable)
+
+LIN_mode_en (local interconnection network mode enable)
+
+oversample_mode (oversampling mode)
+	The oversampling rate of the USART channel.
+
+pin_TX_RX (TX and RX pin configurations)
+	Each USART channel can have multiple pins that can be used as TX or RX. This option configures which set of
+	available TX/RX pins shall be used for the channel. The full breakdown is seen in the "USART Pin Configuration
+	Explained" section earlier in this document.
+
+	Restrictions:
+		- Only if the USART channel 3 is being configured is a 'USART_pin_cnfg3' value allowed for this option. All
+			other USART channels can only use 'USART_pin_cnfg1' and 'USART_pin_cnfg2'.
+
+baud_rate (baud rate)

@@ -1,0 +1,414 @@
+#include "USART.h"
+#include "GPIO.h"
+#include "_stm32f446re_registers.h"
+#include "_stm32f446re_system.h"
+#include <math.h>
+#include <stdlib.h>
+
+/* ============================================================================================================= */
+/* Helper Functions                                                                                              */
+/* ============================================================================================================= */
+/*! Determines if the desired configuration parameters for a USART channel are compatible.
+ *
+ * @brief Checks if:
+ *        - The desired USART channel is within boundaries.
+ *        - The desired oversampling rate is within boundaries.
+ *
+ *        - If the USART channel is 1, 2, 4, 5, or 6, the pin_TX_RX option cannot be USART_pin_cnfg3.
+ *
+ * @param channel
+ *    (input) The USART channel being checked.
+ * @param cnfg
+ *    (input) The configuration options for the channel being checked.
+ */
+static bool _USART_params_are_valid(USART_channel const channel
+	, USART_cnfg const cnfg
+) {
+	bool params_are_valid = false;
+
+	if (  ((channel >= USART_channel1) && (channel <= USART_channel6))
+		&& ((cnfg.oversample_mode == USART_oversample_8) || (cnfg.oversample_mode == USART_oversample_16))
+	) {
+		params_are_valid = true;
+
+		if ((channel == USART_channel1) && (cnfg.pin_TX_RX == USART_pin_cnfg3)) { params_are_valid = false; }
+		if ((channel == USART_channel2) && (cnfg.pin_TX_RX == USART_pin_cnfg3)) { params_are_valid = false; }
+		if ((channel == UART_channel4)  && (cnfg.pin_TX_RX == USART_pin_cnfg3)) { params_are_valid = false; }
+		if ((channel == UART_channel5)  && (cnfg.pin_TX_RX == USART_pin_cnfg3)) { params_are_valid = false; }
+		if ((channel == USART_channel6) && (cnfg.pin_TX_RX == USART_pin_cnfg3)) { params_are_valid = false; }
+	} else {
+		//Invalid parameters, boolean is already false so do nothing
+	}
+
+	return params_are_valid;
+}
+
+/*! Sets the desired TX/RX port/pin combos to alternate function mode.
+ *
+ * @brief Configures the desired port/pin combos for the TX and RX signals as alternate function mode output GPIO.
+ *        The exact alternate function number is dependent on the USART channel - channels 1, 2, and 3 use
+ *        alternate function mode 7 whereas channels 4, 5, and 6 use alternate function mode 8.
+ *
+ * @param channel
+ *    (input) The USART channel whose TX/RX pins are being configured.
+ * @param TX_port
+ *    (input) The GPIO port that is desired for the TX signal.
+ * @param RX_port
+ *    (input) The GPIO port that is desired for the RX signal.
+ * @param TX_pin_num
+ *    (input) The pin number that is desired for the TX signal.
+ * @param RX_pin_num
+ *    (input) The pin number that is desired for the RX signal.
+ */
+static void _USART_set_TX_RX_to_AF(USART_channel const channel
+	, GPIO_port const TX_port
+	, GPIO_port const RX_port
+	, uint32_t const TX_pin_num
+	, uint32_t const RX_pin_num
+) {
+	GPIO_cnfg TX_RX_pin_cnfg = {
+		  .mode  = GPIO_mode_output,      .type  = GPIO_output_type_push_pull
+		, .speed = GPIO_output_speed_low, .pull  = GPIO_pull_none
+	};
+
+	if ((channel <= USART_channel6) && (channel >= UART_channel4)) { //Channels 4, 5, or 6
+		TX_RX_pin_cnfg.mode = GPIO_mode_altrnt_func_8;
+	} else { //Channels 1, 2, or 3
+		TX_RX_pin_cnfg.mode = GPIO_mode_altrnt_func_7;
+	}
+
+	GPIO_configure_port_pin(TX_port, TX_pin_num, TX_RX_pin_cnfg);
+	GPIO_configure_port_pin(RX_port, RX_pin_num, TX_RX_pin_cnfg);
+}
+
+/*! Computes a chhanel's BRR, SR, DR, and CR1 register addresses.
+ *
+ * @brief The address of the register of interest is going to be variable depending on the USART channel. The
+ *        register banks for USART channels 2, 3, 4, and 5 are 0x400 apart from each other. Thus if the desired
+ *        channel is 2, 3, 4, or 5 we take the address of the desired register for USART channel 2 and offset it by
+ *        some multiple of 0x400 (0 for USART2, 1 for USART 3, etc.). If the desired channel is 1 or 6, we just
+ *        return the address of that channel's BRR register via the macro provided in the registers header file.
+ *
+ * @param channel
+ *    (input) The USART channel whose register address is being computed.
+ */
+static uint32_t * _USART_compute_BRR_addr(USART_channel const channel)
+{
+	uint32_t * addr = 0;
+	if (channel >= USART_channel2 && channel <= UART_channel5) {
+		addr = (uint32_t *)((uint8_t *)(&(USART2_BRR)) + (uint32_t)(0x400U * (channel - 2)));
+	} else {
+		if (channel == USART_channel1) {
+			addr = (uint32_t *)((uint8_t *)(&(USART1_BRR)));
+		} else {
+			addr = (uint32_t *)((uint8_t *)(&(USART6_BRR)));
+		}
+	}
+	return addr;
+}
+static uint32_t * _USART_compute_CR1_addr(USART_channel const channel)
+{
+	uint32_t * addr = 0;
+	if (channel >= USART_channel2 && channel <= UART_channel5) {
+		addr = (uint32_t *)((uint8_t *)(&(USART2_CR1)) + (uint32_t)(0x400U * (channel - 2)));
+	} else {
+		if (channel == USART_channel1) {
+			addr = (uint32_t *)((uint8_t *)(&(USART1_CR1)));
+		} else {
+			addr = (uint32_t *)((uint8_t *)(&(USART6_CR1)));
+		}
+	}
+	return addr;
+}
+static uint32_t * _USART_compute_SR_addr(USART_channel const channel)
+{
+	uint32_t * addr = 0;
+	if (channel >= USART_channel2 && channel <= UART_channel5) {
+		addr = (uint32_t *)((uint8_t *)(&(USART2_SR)) + (uint32_t)(0x400U * (channel - 2)));
+	} else {
+		if (channel == USART_channel1) {
+			addr = (uint32_t *)((uint8_t *)(&(USART1_SR)));
+		} else {
+			addr = (uint32_t *)((uint8_t *)(&(USART6_SR)));
+		}
+	}
+	return addr;
+}
+static uint32_t * _USART_compute_DR_addr(USART_channel const channel)
+{
+	uint32_t * addr = 0;
+	if (channel >= USART_channel2 && channel <= UART_channel5) {
+		addr = (uint32_t *)((uint8_t *)(&(USART2_DR)) + (uint32_t)(0x400U * (channel - 2)));
+	} else {
+		if (channel == USART_channel1) {
+			addr = (uint32_t *)((uint8_t *)(&(USART1_DR)));
+		} else {
+			addr = (uint32_t *)((uint8_t *)(&(USART6_DR)));
+		}
+	}
+	return addr;
+}
+
+/* ============================================================================================================= */
+/* Configuration/Initialization Sub Functions                                                                    */
+/* ============================================================================================================= */
+/*! Enables the APB peripheral clock to a USART channel.
+ *
+ * @brief Enabling the clock is done by simply setting the appropriate bit in the APB1ENR or APB2ENR register. The
+ *        breakdown of which bit for which register is as follows:
+ *        USART1 - APB2ENR, bit 4
+ *        USART2 - APB1ENR, bit 17
+ *        USART3 - APB1ENR, bit 18
+ *        UART4  - APB1ENR, bit 19
+ *        UART5  - APB1ENR, bit 20
+ *        USART6 - APB2ENR, bit 5
+ *        Thus the (15 + channel) part is taking 15 and adding '2' for USART2, '3' for USART3, etc.
+ *
+ * @param channel
+ *    (input) The USART channel whose clock is to be enabled.
+ */
+static void _USART_init_channel_enable_clk(USART_channel const channel)
+{
+	switch (channel)
+	{
+		case USART_channel2:
+		case USART_channel3:
+		case UART_channel4:
+		case UART_channel5:
+			RCC_APB1ENR |= 0x1 << (15 + channel);
+			break;
+		case USART_channel1:
+			RCC_APB2ENR |= 0x1 << 4;
+			break;
+		case USART_channel6:
+			RCC_APB2ENR |= 0x1 << 6;
+			break;
+		default:
+			break;
+	}
+}
+/*! Configures the TX and RX signals in accordance to the USART channel's desired configuration.
+ *
+ * @brief The USART channel-pin config map is seen in USART_driver.txt "USART Pin Configurations Expalined" section
+ *        and breaks down which port/pins are available for each USART channel per pin config. This function just
+ *        assigns the TX and RX pins as per that map.
+ *
+ * @param channel
+ *    (input) The USART channel being configured.
+ * @param cnfg
+ *    (input) The configuration options for the channel.
+ */
+static void _USART_init_channel_configure_TX_RX_pins(USART_channel const channel
+	, USART_cnfg const cnfg
+) {
+	switch (channel)
+	{
+		case USART_channel1:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_A, GPIO_port_A, 9, 10);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_B, GPIO_port_B, 6, 7);
+			}
+			break;
+		case USART_channel2:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_A, GPIO_port_A, 2, 3);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_D, GPIO_port_D, 5, 6);
+			}
+			break;
+		case USART_channel3:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_B, GPIO_port_B, 10, 11);
+			} else if (cnfg.pin_TX_RX == USART_pin_cnfg2) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_C, GPIO_port_C, 10, 5);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_D, GPIO_port_D, 8, 9);
+			}
+			break;
+		case UART_channel4:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_A, GPIO_port_A, 0, 1);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_C, GPIO_port_C, 10, 11);
+			}
+			break;
+		case UART_channel5:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_C, GPIO_port_D, 12, 2);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_E, GPIO_port_E, 7, 8);
+			}
+			break;
+		case USART_channel6:
+			if (cnfg.pin_TX_RX == USART_pin_cnfg1) {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_C, GPIO_port_C, 6, 7);
+			} else {
+				_USART_set_TX_RX_to_AF(channel, GPIO_port_G, GPIO_port_G, 14, 9);
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+/*! Converts the desired baud rate to a value appropriate for the BRR register.
+ *
+ * @brief The value appropriate for the BRR register is called the USARTDIV and is an unsigned fixed point number
+ *        that is coded in one of two ways in the BRR register.
+ *        - When oversampling by 16 (oversample_mode value of 'USART_oversample_16'), the fractional part of the
+ *             fixed point USARTDIV is coded on 4 bits and is represented by bits 3:0 in the USART_BRR register.
+ *             The integral part of the fixed point USARTDIV is coded on 12 bits and and is represented by bits
+ *             15:4 in the USART_BRR register.
+ *        - When oversampling by 8 (oversample_mode value of 'USART_oversample_8'), the fractional part of the
+ *             fixed point USARTDIV is coded on 3 bits and is represented by bits 2:0 in the USART_BRR register -
+ *             bit 3 must be kept cleared. The integral part of the fixed point USARTDIV is coded on 12 bits and is
+ *             represented by bits 15:4 in the USART_BRR register.
+ *
+ *        The actual calculation for USARTDIV is set by one of the two following equations:
+ *        Equation (1) - Standard USART (SPI mode included)
+ *             desired_baud = fCK / (8 * (2 - OVER8) * USARTDIV) ...thus...
+ *             USARTDIV = fCK / (8 * (2 - OVER8) * desired_baud)
+ *        Equation (2) - Smartcard, LIN, and IrDA modes
+ *             desired_baud = fCK / (16 * USARTDIV)
+ *             USARTDIV = fCK / (16 * desired_baud)
+ *
+ *        Where desired_baud is the desired baud rate, fCK is the frequency of the clock driving the USART channel
+ *        (i.e. APB1 clk for channels 2, 3, 4, and 5 and APB2 clk for channels 1 and 6), and OVER8 is the
+ *        oversampling mode ('0' for an oversampling rate of 16, '1' for an oversampling rate of 8).
+ *
+ * @param see _USART_init_channel_configure_TX_RX_pins(). The parameters are the same.
+ */
+static void _USART_init_channel_set_baud_rate(USART_channel const channel
+	, USART_cnfg const cnfg
+) {
+	float USARTDIV = 0, temp_fractional = 0, DIV_mantissa = 0;
+	uint32_t fCK = 0, DIV_fractional = 0, DIV_fractional_ovrflw = 0;
+	bool OVER8 = (cnfg.oversample_mode == USART_oversample_8) ? 1 : 0;
+	uint32_t volatile * const USARTx_BRR_addr = _USART_compute_BRR_addr(channel);
+
+	/* Determine fCK depending on the desired USART channel */
+	if ((channel >= USART_channel2) && (channel <= UART_channel5)) {
+		fCK = _SYS_APB1_clk();
+	} else {
+		fCK = _SYS_APB2_clk();
+	}
+
+	/* Compute the floating-point USARTDIV */
+	if (cnfg.IrDA_mode_en || cnfg.smartcard_mode_en || cnfg.LIN_mode_en) {
+		USARTDIV = fCK / (cnfg.baud_rate * 16);
+	} else {
+		USARTDIV = fCK / (cnfg.baud_rate * 8 * (2 - (float)cnfg.oversample_mode));
+	}
+
+	temp_fractional = modff(USARTDIV, &DIV_mantissa); //Breakup the USARTDIV into fractional/integral parts
+	temp_fractional *= (OVER8) ? 16 : 8;              //Scale fractional by the oversampling rate
+	temp_fractional = roundf(temp_fractional);        //Round the fractional to the nearest whole number
+
+	/* Check for overflow */
+	if (((temp_fractional > 7) && OVER8) || ((temp_fractional > 15) && !OVER8)) {
+		DIV_fractional_ovrflw = (uint32_t)temp_fractional & (OVER8 ? 0xFFFFFFF8U : 0xFFFFFFF0U);
+	} else {
+		//No overflow, do nothing
+	}
+	DIV_fractional = (uint32_t)temp_fractional & (OVER8 ? 0x7U : 0xF); //Convert fractional to a 3 or 4 bit value
+
+	/* Combine the mantissa and fractional and write to the BRR register */
+	*USARTx_BRR_addr = (((uint32_t)DIV_mantissa + DIV_fractional_ovrflw) << 4) + DIV_fractional;
+}
+
+/*! Enables TX and RX transmission/reception in the control register.
+ *
+ * @brief Enabling TX and RX transmission/reception is done by simply writing a '1' to bit 3 for TX and bit 2 for
+ *        RX. The writes are done to an accumulated CR1 register value to gather all changes to the register over
+ *        multiple USART channel initialization sub-functions before making one, final write to the actual
+ *        register.
+ *
+ * @param accum_CR1_va
+ *    (input) An accumulator of writes for the CR1 register.
+ */
+static void _USART_init_channel_enable_TX_RX(uint32_t * const accum_CR1_val)
+{
+	*accum_CR1_val |= 0x1 << 3; //Enable TX
+	*accum_CR1_val |= 0x1 << 2; //Enable RX
+}
+
+/*! Enables the USART channel.
+ *
+ * @brief Writes a '1' to the USART enable (UE) bit in the CR1 register. If this write is done without an
+ *        accumulator it will reset the transmite enable (TE) and receive enable (RE) bits in the CR1 register.
+ *
+ * @param see _USART_init_channel_enable_TX_RX(). The parameters are the same.
+ */
+static void _USART_init_channel_enable_channel(uint32_t * const accum_CR1_val)
+{
+	*accum_CR1_val |= 0x1 << 13;
+}
+
+/* ============================================================================================================= */
+/* Configuration/Initialization Functions                                                                        */
+/* ============================================================================================================= */
+/*! Configures and initializes a USART channel.
+ *
+ * @brief Read the comments on each of the sub-functions to determine its purpose in the initialization of the
+ *        USART channel.
+ */
+void USART_init_channel(USART_channel const channel
+	, USART_cnfg const cnfg
+) {
+	uint32_t accum_CR1_val = 0;
+	uint32_t volatile * const USARTx_CR1_addr = _USART_compute_CR1_addr(channel);
+
+	if (_USART_params_are_valid(channel, cnfg)) {
+		_USART_init_channel_enable_clk(channel);
+		_USART_init_channel_configure_TX_RX_pins(channel, cnfg);
+		_USART_init_channel_set_baud_rate(channel, cnfg);
+		_USART_init_channel_enable_TX_RX(&accum_CR1_val);
+		_USART_init_channel_enable_channel(&accum_CR1_val);
+
+		*USARTx_CR1_addr = accum_CR1_val; //Write the accumulated CR1 changes
+	} else {
+		//Invalid configuration parameter combination, do nothing
+	}
+}
+
+/* ============================================================================================================= */
+/* Write Functions                                                                                               */
+/* ============================================================================================================= */
+/*! Writes a byte to the USART channel
+ *
+ */
+void USART_write_blocking(USART_channel const channel
+	, uint32_t const val
+) {
+	uint32_t volatile * const USARTx_SR_addr = _USART_compute_SR_addr(channel);
+	uint32_t volatile * const USARTx_DR_addr = _USART_compute_DR_addr(channel);
+
+	while (!(*USARTx_SR_addr & (0x1 << 7))); //Spin while transmit data register is not empty
+	*USARTx_DR_addr = (val & 0xFFU);         //Write 8-bits of the desired write val
+}
+
+/* ============================================================================================================= */
+/* Read Functions                                                                                                */
+/* ============================================================================================================= */
+/*! Reads a byte from the USART channel.
+ *
+ * @note  This call is blocking. It will continually spin until there is incoming data.
+ *
+ * @param channel
+ *    (input) Which of the onboard USART channels to read from.
+ * @return The 8-bit value read from the channel.
+ */
+uint32_t USART_read_blocking(USART_channel const channel)
+{
+	uint32_t read_data = 0;
+	uint32_t volatile * const USARTx_SR_addr = _USART_compute_SR_addr(channel);
+	uint32_t volatile * const USARTx_DR_addr = _USART_compute_DR_addr(channel);
+
+	while (!(*USARTx_SR_addr & (0x1 << 5))); //Spin while read data register is empty
+	read_data = *USARTx_DR_addr & 0xFFU;     //Read the incoming 8-bits of data
+
+	return read_data;
+}
+
+/* EOF */

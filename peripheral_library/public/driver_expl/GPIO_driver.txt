@@ -1,0 +1,76 @@
+GPIO
+
+-------------------------------------------------------------------------------------------------------------------
+How to Use This Driver
+-------------------------------------------------------------------------------------------------------------------
+2) Call DMA_configure_stream() and pass in the configuration struct, the stream number and the DMA controller
+	number.
+3) Start the DMA transfer with the DMA_enable_stream() function.
+
+1) Create a configuration struct (variable of type GPIO_cnfg) for a particular GPIO port (A through H) and pin (0
+	through 15). The explanation of the configuration options are at the bottom of this txt document.
+2) Call GPIO_configure_port_pin() and pass in the configuration struct, the port letter, and the pin number.
+3) Write/read to/from the pin with GPIO_write(), GPIO_read().
+
+-------------------------------------------------------------------------------------------------------------------
+Physical Board Pinout Mapping
+-------------------------------------------------------------------------------------------------------------------
+STM Nucleo F446RE Board Physical Pinout
+
+ PC10---|01 02|---PC11                                               D15---|10|        PC9---|01 02|---PC8
+ PC12---|03 04|---PD2                                                D14---|09|        PB8---|03 04|---PC6
+  VDD---|05 06|---E5V                                               AVDD---|08|        PB9---|05 06|---PC5
+BOOT0---|07 08|---GND                                                GND---|07|       AVDD---|07 08|---U5V
+   NC---|09 10|---NC           |1|---NC                              D13---|06|        GND---|09 10|---NC
+   NC---|11 12|---IOREF        |2|---IOREF                           D12---|05|        PA5---|11 12|---PA12
+ PA13---|13 14|---RESET        |3|---RESET                           D11---|04|        PA6---|13 14|---PA11
+ PA14---|15 16|---+3V3         |4|---+3V3                            D10---|03|        PA7---|15 16|---PB12
+ PA15---|17 18|---+5V          |5|---+5V                              D9---|02|        PB6---|17 18|---NC
+  GND---|19 20|---GND          |6|---GND                              D8---|01|        PC7---|19 20|---GND
+  PB7---|21 22|---GND          |7|---GND                                               PA9---|21 22|---PB2
+ PC13---|23 24|---VIN          |8|---VIN                              D7---|08|        PA8---|23 24|---PB1
+ PC14---|25 26|---NC                                                  D6---|07|       PB10---|25 26|---PB15
+ PC15---|27 28|---PA0          |1|---A0                               D5---|06|        PB4---|27 28|---PB14
+  PH0---|29 30|---PA1          |2|---A1                               D4---|05|        PB5---|29 30|---PB13
+  PH1---|31 32|---PA4          |3|---A2                               D3---|04|        PB3---|31 32|---AGND
+ VBAT---|33 34|---PB0          |4|---A3                               D2---|03|       PA10---|33 34|---PC4
+  PC2---|35 36|---PC1          |5|---A4                               D1---|02|        PA2---|35 36|---NC
+  PC3---|37 38|---PC0          |6|---A5                               D0---|01|        PA3---|37 38|---NC
+
+  ^^^leftmost column           ^^^leftmost column           rightmost column^^^        rightmost column^^^
+        of male pins               of female pins           of female pins             of male pins
+
+List of alternate functions for every port/pin combo can be found on the STM32F446xC/E datasheet (STM 
+DS10693 Rev 7) page 57.
+
+-------------------------------------------------------------------------------------------------------------------
+GPIO Configuration Parameters Explained
+-------------------------------------------------------------------------------------------------------------------
+mode
+	The mode of function of the pin. Possible choices include one of 16 alternate functions (for uses with
+	peripherals), input, output, or analog.
+
+type
+	The output type of the pin. The first option is push-pull, wherein the pin is actively "pulled" to ground by
+	its connection to GND during a write of '0' or the pin as actively "pushed" to high by its connection to VCC
+	during a write of '1' - a pin configured for push-pull can both sink and source current. The second option is
+	open-drain wherein the output pin can only be low or high-impedance (a.k.a floating, neither VCC nor ground).
+	Thus the pin can not be driven high to '1'.
+
+	Restrictions:
+		- For this configuration option to be used at all, the @mode must be 'GPIO_mode_output', else this option is
+			disregarded.
+
+speed
+	This is the slew rate, or the rate at which the signal can change between low and high. Note that the faster the
+	speed, the higher the power consumption and noise radiated by the pin.
+
+	Restrictions:
+		-For this configuration option to be used at all, the @mode must be 'GPIO_mode_output', else this option is
+			disregarded.
+
+pull
+	The presence of a pull-up resistor, pull-down resistor, or no resistor. A pull-up resistor will connect the pin
+	to VCC and set the default state whenever the signal is floating (neither VCC nor ground) thus preventing a pin
+	from being high impedance/floating (note that a write to '0' will override the pull-up resistor). A pull-down
+	resistor also set the default state whenever the signal is floating but set it to GND.
