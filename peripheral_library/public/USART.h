@@ -30,14 +30,36 @@ typedef enum USART_oversample_mode {
 	, USART_oversample_16 = 0 //default
 } USART_oversample_mode;
 
+/*! An enumeration of the different number of stop bits that can be used by the channel.
+ */
+typedef enum USART_stop_bits {
+	  USART_1_stop   = 0
+	, USART_0_5_stop = 1
+	, USART_2_stop   = 2
+	, USART_1_5_stop = 3
+} USART_stop_bits;
+
+/*! An enumeration of the different parity options provided by the channel.
+ */
+typedef enum USART_parity {
+	  USART_parity_none
+	, USART_parity_even
+	, USART_parity_odd
+} USART_parity;
+
 /*! Configuration parameters for a USART channel. An explanation of each is found in USART_driver.txt.
  */
 typedef struct USART_cnfg {
 	bool IrDA_mode_en;
 	bool smartcard_mode_en;
 	bool LIN_mode_en;
+	bool hw_flow_cntrl_en;
 	USART_oversample_mode oversample_mode;
 	USART_pin_cnfg pin_TX_RX;
+	USART_pin_cnfg pin_CTS_RTS;
+	USART_stop_bits num_stop_bits;
+	USART_parity parity;
+	uint32_t word_length;
 	uint32_t baud_rate;
 } USART_cnfg;
 
@@ -61,7 +83,7 @@ void USART_init_channel(USART_channel const channel
 /* ============================================================================================================= */
 /* Write Functions                                                                                               */
 /* ============================================================================================================= */
-/*! Writes a byte to the USART channel.
+/*! Writes a byte or 9-bits (depending on word length) to the USART channel.
  *
  * @note  This call is blocking. It will continually spin until there is room for the outgoing data.
  *
@@ -78,7 +100,7 @@ void USART_write_blocking(USART_channel const channel
 /* ============================================================================================================= */
 /* Read Functions                                                                                                */
 /* ============================================================================================================= */
-/*! Reads a byte from the USART channel.
+/*! Reads a byte or 9-bits (depending on word length) from the USART channel.
  *
  * @note  This call is blocking. It will continually spin until there is incoming data.
  *
