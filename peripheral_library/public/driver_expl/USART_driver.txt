@@ -2,6 +2,15 @@ USART
 
 Note: Currently, if hardware flow control is desired, both RTS and CTS must be used. There is no support for just
 		one.
+Note: The lib math (linker flag -lm) and by extension the libgcc (linker flag -lgcc) are needed for compilation.
+		With the gcc-arm-none-eabi comilation toolchain, the lib math library (libm.a) can be found at:
+		gcc-arm-none-eabi-9_2019_q4_major/arm-none-eabi/lib
+		The libgcc library (libgcc.a) can be found at:
+		gcc-arm-none-eabi-9_2019_q4_major/lib/gcc/arm-none-eabi/9.2.1
+		***remember, link libraries come AFTER the object files in the linking stage***
+Note: The lib math library was NOT compiled with VFP register arguments thus (for program compatibility with the
+		supplied lib math) the compiler cannot use the 'mfloat-abi=hard' option, instead the 'mfloat-abi=soft' option
+		should be used.
 
 -------------------------------------------------------------------------------------------------------------------
 USART Pin Configurations Explained
