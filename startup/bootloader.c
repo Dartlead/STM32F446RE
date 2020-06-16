@@ -268,10 +268,10 @@ __attribute__((section(".vector_table"))) void (* const __vector_table[])(void) 
 /* ============================================================================================================= */
 /* System Initialization Code (Called by Reset Handler)                                                          */
 /* ============================================================================================================= */
-void _system_init()
+/*void _system_init()
 {
 	btldr_set_sys_clk();
-}
+}*/
 
 /* ============================================================================================================= */
 /* Reset Handler (Called on Processor Reset)                                                                     */
@@ -295,7 +295,8 @@ __attribute__((optimize("O2"))) void reset_handler(void)
 		*p_dest++ = 0ul;
 	}
 
-	_system_init();
+	//_system_init();
+	btldr_set_sys_clk();
 
 	main();
 
