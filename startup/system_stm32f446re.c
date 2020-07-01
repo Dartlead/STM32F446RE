@@ -247,4 +247,54 @@ void btldr_set_sys_clk()
 	}
 }
 
+
+
+
+
+//-----------------------------------------------------------------------------------------------------------------
+#include <stdint.h>
+#include "core/registers_stm32f446re.h"
+
+/*! Global variable containing the system's frequency.
+ */
+uint32_t system_core_clock = 0;
+
+/*! Sets the CR, PLLCFGR, CFGR, and CIR RCC registers to their reset values.
+ */
+static void _system_init_reset_RCC_regs()
+{
+	uint32_t volatile * const rcc_cr = (uint32_t *)0x40023800;
+	uint32_t volatile * const rcc_pllcfgr = (uint32_t *)0x40023804;
+	uint32_t volatile * const rcc_cfgr = (uint32_t *)0x40023808;
+	uint32_t volatile * const rcc_cir = (uint32_t *)0x4002380C;
+
+	//!# Reset the CR, CFGR, PLLCGFR, and CIR registers
+	*rcc_cr = 0x00000083UL;
+	*rcc_cfgr = 0x00000000UL;
+	*rcc_pllcfgr = 0x24003010UL;
+	*rcc_cir = 0x00000000UL;
+}
+
+static void _system_init_set_sys_clock()
+{
+	;
+}
+
+/*! Device-specific system configuration function.
+ *
+ * @brief This function initializes the system clock to the output from either the high speed internal oscillator
+ *        (HSI), high speed external oscillator (HSE), the PLL clocked by the HSI (PLLCLK), or the PLL clocked by
+ *        the HSE (PLLR).
+ * @note  The RCC clock configuration registers have to be reset (via _system_init_reset_RCC_regs()) to ensure that
+ *        irregardless of the type of reset the system goes through (system, power, or backup domain) we always
+ *        start system initialization with the "clean slate" of RCC registers with the HSI being used as the system
+ *        clock source.
+ */
+void system_init()
+{
+	_system_init_reset_RCC_regs();
+	_system_init_set_sys_clock();
+	_system_init_set_bus_clks(); //!# APB1, APB2, and AHB clocks
+}
+
 /* EOF */
