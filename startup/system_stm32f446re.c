@@ -259,32 +259,130 @@ void btldr_set_sys_clk()
  */
 uint32_t system_core_clock = 0;
 
+/*! Potential sources for the system core clock.
+ */
+typedef enum sys_core_clk_src {
+	  sys_core_clk_src_HSI       //!# High-speed internal oscillator (HSI)
+	, sys_core_clk_src_HSE       //!# High-speed external oscillator (HSE)
+	, sys_core_clk_src_HSE_BYP   //!# HSE bypassed with an external user-provided clock
+	, sys_core_clk_src_PLL_HSE_P //!# Main PLL P (a.k.a CLK) output, where the PLL is clocked by the HSE
+	, sys_core_clk_src_PLL_HSE_R //!# Main PLL R output, where the PLL is clocked by the HSE
+	, sys_core_clk_src_PLL_HSI_P //!# Main PLL P (a.k.a CLK) output, where the PLL is clocked by the HSI
+	, sys_core_clk_src_PLL_HSI_R //!# Main PLL R output, where the PLL is clocked by the HSI
+} sys_core_clk_src;
+
 /*! Sets the CR, PLLCFGR, CFGR, and CIR RCC registers to their reset values.
  */
 static void _system_init_reset_RCC_regs()
 {
-	uint32_t volatile * const rcc_cr = (uint32_t *)0x40023800;
-	uint32_t volatile * const rcc_pllcfgr = (uint32_t *)0x40023804;
-	uint32_t volatile * const rcc_cfgr = (uint32_t *)0x40023808;
-	uint32_t volatile * const rcc_cir = (uint32_t *)0x4002380C;
-
-	//!# Reset the CR, CFGR, PLLCGFR, and CIR registers
-	*rcc_cr = 0x00000083UL;
-	*rcc_cfgr = 0x00000000UL;
-	*rcc_pllcfgr = 0x24003010UL;
-	*rcc_cir = 0x00000000UL;
+	RCC_CR = 0x00000083UL;
+	RCC_CFGR = 0x00000000UL;
+	RCC_PLLCFGR = 0x24003010UL;
+	RCC_CIR = 0x00000000UL;
 }
 
+static int _system_init_set_sys_clock_HSE()
+{
+	uint32_t const clk_stable_timeout = (uint32_t)8000000; //!# TODO: get rid of magic number
+	uint32_t clk_stable_cntr = 0;
+
+	//!# Enable the HSE
+	RCC_CR |= RCC_CR_HSEON;
+
+	//!# Wait for the HSE to stabilize
+	while (!(RCC_CR & RCC_CR_HSERDY)) {
+		if (clk_stable_cntr >= clk_stable_timeout) {
+			//***ERROR OUT DUE TO TIMEOUT***
+			while (1);
+		} else {
+			++clk_stable_cntr;
+		}
+	}
+	clk_stable_cntr = 0;
+
+	//!# Select the HSE as the sys clock source
+	RCC_CFGR |= RCC_CFGR_SW_HSE;
+
+	//!# Wait for the system to accept the HSE as the source for the system clock.
+	while ((RCC_CFGR & RCC_CFGR_SW) != RCC_CFGR_SW_HSE) {
+		if (clk_stable >= clk_stable_timeout) {
+			//***ERROR OUT DUE TO TIMEOUT***
+			while (1);
+		} else {
+			++clk_stable_cntr;
+		}
+	}
+}
+
+/*!
+ *
+ * @return Error code
+ */
+//static int _system_init_set_sys_clock_PLL_HSE()
+//{
+//	uint32_t const HSE_stable_timeout = (uint32_t)8000000; //!# TODO: get rid of magic number
+//	uint32_t HSE_stable_cntr = 0;
+//
+//	//!# Enable the HSE
+//	RCC_CR |= RCC_CR_HSEON;
+//
+//	//!# Wait for the HSE to stabilize
+//	while (!(RCC_CR & RCC_CR_HSERDY)) {
+//		if (HSE_stable_cntr >= HSE_stable_timeout) {
+//			***ERROR OUT DUE TO TIMEOUT***
+//		} else {
+//			++HSE_stable_cntr;
+//		}
+//	}
+//
+//	/* The voltage regulator supplies all the digital circuitries except for the backup domain and the standby
+//	 * circuitry. the regulator output is around 1.2V.
+//	 * At power scale 3, the typical regulator voltage output is 1.14V and the max HCLK (AHB freq) is 120 MHZ.
+//	 * At power scale 2, the typical regulator voltage output is 1.26V and the max HCLK is 144 MHz with overdrive
+//	 *    off or 168 MHz with over-drive on.
+//	 * At power scale 1, the output is 1.32V and the max HCLK is 168 MHz with overdrive off  and 180 MHz with it on.
+//	 * More details about the power scales can be found on page 75 of the STM32f446xC/E datasheet (General
+//	 * Operating Conditions table).
+//	 */
+//	//!# Select regulator voltage output scale 1 mode for max frequency
+//	RCC_APB1ENR |= RCC_APB1ENR_PWREN; //!# Turn on the clock to the power configuration circuitry
+//	uint32_t volatile * const PWR_CR = (uint32_t volatile *)0x40007000;
+//	*PWR_CR |= (uint32_t)0x0000C000; //1# PWR_CR bits 15 & 14 (VOS[1:0]) set to 0b11
+//
+//	//!# Set the AHB prescaler to 0 meaning that the AHB frequency (HCLK) will be == the sys clock
+//	//RCC_CFGR &= ~(RCC_CFGR_HPRE); //<-- this is optional for now
+//
+//	//!# Set the APB1 and APB2 prescalers (APB2 can't exceed 90 MHz and APB1 can't exceed 45 MHz)
+//	//RCC_CFGR bits 15:13 for APB2 and bits 12:10 for APB1
+//
+//	//!# Configure the main PLL (i.e. the M div factor, N mult factor, P or R div factor)
+//}
+
+/*!
+ *
+ * @note  The '__SYS_CORE_CLK_SRC' is provided via the preprocessor (and must be defined in the makefile).
+ */
 static void _system_init_set_sys_clock()
 {
-	;
+	//!# Determine desired system clock source
+	sys_core_clk_src const clk_src = __SYS_CORE_CLK_SRC;
+
+	int ret = 0;
+
+	switch (clk_src) {
+		case sys_core_clk_src_HSE:
+			_system_init_set_sys_clk_HSE();
+		case sys_core_clk_src_HSI:
+		default:
+			break; //!# Do nothing asthe HSI is the default system clock source
+	}
 }
 
 /*! Device-specific system configuration function.
  *
- * @brief This function initializes the system clock to the output from either the high speed internal oscillator
- *        (HSI), high speed external oscillator (HSE), the PLL clocked by the HSI (PLLCLK), or the PLL clocked by
- *        the HSE (PLLR).
+ * @brief This function initializes the sytem clock to the output from either the high speed internal oscillator
+ *        (HSI), high speed external oscillator (HSE), bypassed HSE with an external user clock (HSE bypass), the
+ *        PLL clocked by the HSI (PLLCLK), or the PLL clocked by the HSE (PLLR).
  * @note  The RCC clock configuration registers have to be reset (via _system_init_reset_RCC_regs()) to ensure that
  *        irregardless of the type of reset the system goes through (system, power, or backup domain) we always
  *        start system initialization with the "clean slate" of RCC registers with the HSI being used as the system
@@ -294,7 +392,7 @@ void system_init()
 {
 	_system_init_reset_RCC_regs();
 	_system_init_set_sys_clock();
-	_system_init_set_bus_clks(); //!# APB1, APB2, and AHB clocks
+	//_system_init_set_bus_clks(); //!# APB1, APB2, and AHB clocks
 }
 
 /* EOF */
