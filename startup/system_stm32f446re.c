@@ -255,6 +255,10 @@ void btldr_set_sys_clk()
 #include <stdint.h>
 #include "core/registers_stm32f446re.h"
 
+#ifndef __SYS_CORE_CLK_SRC
+#	error Source for system core clock must be defined via the '__SYS_CORE_CLK_SRC' preprocessor define
+#endif
+
 /*! Global variable containing the system's frequency.
  */
 uint32_t system_core_clock = 0;
@@ -281,9 +285,10 @@ static void _system_init_reset_RCC_regs()
 	RCC_CIR = 0x00000000UL;
 }
 
+//HSE frequency is 8 MHz (line 148 of stm32f4xx.h in the STM STD peripheral library)
 static int _system_init_set_sys_clock_HSE()
 {
-	uint32_t const clk_stable_timeout = (uint32_t)8000000; //!# TODO: get rid of magic number
+	uint32_t const clk_stable_timeout = (uint32_t)0x5000; //!# TODO: get rid of magic number
 	uint32_t clk_stable_cntr = 0;
 
 	//!# Enable the HSE
