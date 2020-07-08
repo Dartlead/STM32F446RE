@@ -338,6 +338,78 @@ static sys_core_clk_status _system_init_set_sys_clk_HSE()
 	return HSE_status;
 }
 
+/*! Initializes the main PLL's PLL_P output clock signal and sets it as the system clock source.
+ *
+ * @brief For this getup, the HSE is used as the input clock source to the main PLL which then divides said input
+ *        clock source by the PLLM factor to get the PLL's internal voltage-controlled oscillator's (VCO) input
+ *        frequency. The VCO's input frequency is multiplied by the PLLN factor to get the VCO's output frequency
+ *        and from there the VCO output frequency is divided by the PLL_P factor to get the frequency that will be
+ *        used as the sytem clock source.
+ * 
+ *        The VCO input frequency should always be 2 MHz (to limit PLL jitter) and thus the PLLM division factor
+ *        should always be 4 (8 MHz HSE PLL input frequency / 4 = the necessary 2 MHz VCO input frequency).
+ *
+ *        The VCO output frequency must be between 100 and 432 MHz. But because the VCO output frequency can be
+ *        divided by as little as 2 (and the result of said division is the system clock frequency which is capped
+ *        at 180 MHz), the PLLN multiplication factor should be 180 (2 MHz VCO input frequency * 180 = 360 MHz
+ *        which, when divided the smallest PLLP factor of 2 results in a system clock frequench of 180 MHz).
+ *
+ *        ... something something ... VCO output / PLLP = PLL's PLL_P frequency which is used as sys clock capped
+ *        at 180 MHz. ... something something ... wait for PLL to be stable then wait for system to be stable after
+ *        selecting PLLP as system clock source.
+ * 
+ * @note  In the reference manual, the PLL_P output clock is also referenced as PLL_CLK.
+ *
+ * @param vco_output_freq
+ *    (input) The desired VCO output freq, must be between 100 and 432 MHz.
+ * @param pll_p_div_factor
+ *    (input) The desired VCO output freq division factor for main PLL's PLL_P clock signal.
+ * @param pll_r_div_factor
+ *    (input) The desired VCO output freq division factor for the main PLL's PLL_R clock signal.
+ * @param pll_out_clk
+ *    (input) Which of the main PLL's output clocks to use as the system clock source.
+ */
+static sys_core_clk_status _system_init_set_sys_clk_PLL_HSE_P()
+{
+	uint32_t accum_pllcfgr = RCC_PLLCFGR;
+
+	accum_pllcfgr |= RCC_PLLCFGR_PLLSRC_HSE; //!# Select the HSE as the main PLL input clock source
+	accum_pllcfgr |= 0x4UL; //!# Dividing the VCO's input frequency (HSE) by 4, we get the necessary 2 MHz
+	accum_pllcfgr |= 0xB4UL; //!# We set the VCO output frequency to the highest possible (minus a little for variance)
+
+
+
+	//////////////////////// old is below
+	uint32_t volatile * const rcc_cr = (uint32_t *)0x40023800;
+	uint32_t volatile * const rcc_cfgr = (uint32_t *)0x40023808;
+	uint32_t volatile * const rcc_pllcfgr = (uint32_t *)0x40023804;
+	uint32_t cfgr_accum = *rcc_cfgr;
+	uint32_t pllcfgr_accum = *rcc_pllcfgr;
+
+	pllcfgr_accum &= ~(0x1 << 22); //Select the HSI as the main PLL entry clock source
+	pllcfgr_accum &= ~(0x3FUL);    //Clear PLLM[5:0] (RCC_PLLCFGR[5:0])
+	pllcfgr_accum |= 0x8UL;        //Set PLLM[5:0] to 8 which gives us a VCO input frequency of 2 MHz
+
+	_btldr_set_sys_clk_PLL_set_PLLN(vco_output_freq, &pllcfgr_accum);
+	_btldr_set_sys_clk_PLL_set_PLLP_R(vco_output_freq
+		, pll_p_div_factor
+		, pll_r_div_factor
+		, pll_out_clk
+		, &pllcfgr_accum
+	);
+
+	*rcc_pllcfgr = pllcfgr_accum;     //Write the main PLL accumulated configurations
+	*rcc_cr |= 0x1 << 24;             //Turn on the newly configured main PLL
+	while (!(*rcc_cr & 0x2000000UL)); //Wait until main PLL is stable (a.k.a locked)
+
+	_btldr_set_sys_clk_PLL_set_sys_clk_src(pll_out_clk);
+	if (pll_out_clk == main_pll_out_clk_P) {
+		while (!(*rcc_cfgr & 0x2UL)); //Wait for the chip to accept the new system clock source
+	} else {
+		while (!(*rcc_cfgr & 0x3UL)); //Wait for the chip to accept the new system clock source
+	}
+}
+
 /*!
  *
  * @return Error code
@@ -390,10 +462,15 @@ static void _system_init_set_sys_clock()
 {
 	//!# Determine desired system clock source
 	sys_core_clk_src const clk_src = __SYS_CORE_CLK_SRC;
+	sys_core_clk_status sys_clk_src_status = sys_core_clk_success;
 
 	switch (clk_src) {
 		case sys_core_clk_src_HSE:
-			_system_init_set_sys_clk_HSE();
+			sys_clk_src_status = _system_init_set_sys_clk_HSE();
+		case sys_core_clk_src_HSE_BYP:
+			break; //!# Not implemented
+		case sys_core_clk_src_PLL_HSE_P:
+			sys_clk_src_status = _system_init_set_sys_clk_PLL_HSE_P();
 		case sys_core_clk_src_HSI:
 		default:
 			break; //!# Do nothing as the HSI is the default system clock source

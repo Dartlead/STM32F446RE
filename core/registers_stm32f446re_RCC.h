@@ -87,11 +87,44 @@
 /* RCC PLLCFGR Register Bit Definitions                                                                          */
 /* ============================================================================================================= */
 #define RCC_PLLCFGR_PLLM            0x0000003FUL
+//!# Too many division factors to list them all
+
 #define RCC_PLLCFGR_PLLN            0x00007FC0UL
+//!# WAYYYY too many multiplication factors to list them all
+
 #define RCC_PLLCFGR_PLLP            0x00030000UL
+#define RCC_PLLCFGR_PLLP_DIV_2 .    0x00000000UL
+#define RCC_PLLCFGR_PLLP_DIV_4      0x00010000UL
+#define RCC_PLLCFGR_PLLP_DIV_6      0x00020000UL
+#define RCC_PLLCFGR_PLLP_DIV_8      0x00030000UL
+
 #define RCC_PLLCFGR_PLLSRC          0x00400000UL
+#define RCC_PLLCFGR_PLLSRC_HSI .    0x00000000UL
+#define RCC_PLLCFGR_PLLSRC_HSE      0x00400000UL
+
 #define RCC_PLLCFGR_PLLQ            0x0F000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_2 .    0x02000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_3      0x03000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_4      0x04000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_5      0x05000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_6      0x06000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_7      0x07000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_8      0x08000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_9      0x09000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_10     0x0A000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_11     0x0B000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_12     0x0C000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_13     0x0D000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_14     0x0E000000UL
+#define RCC_PLLCFGR_PLLQ_DIV_15     0x0F000000UL
+
 #define RCC_PLLCFGR_PLLR            0x70000000UL
+#define RCC_PLLCFGR_PLLR_DIV_2      0x20000000UL
+#define RCC_PLLCFGR_PLLR_DIV_3      0x30000000UL
+#define RCC_PLLCFGR_PLLR_DIV_4      0x40000000UL
+#define RCC_PLLCFGR_PLLR_DIV_5      0x50000000UL
+#define RCC_PLLCFGR_PLLR_DIV_6      0x60000000UL
+#define RCC_PLLCFGR_PLLR_DIV_7      0x70000000UL
 
 /* ============================================================================================================= */
 /* RCC CFGR Register Bit Definitions                                                                             */
