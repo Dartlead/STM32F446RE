@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "_stm32f446re_registers.h"
+#include "registers_stm32f446re.h"
 
 #ifndef _NVIC_H
 #define _NVIC_H

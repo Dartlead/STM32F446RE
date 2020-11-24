@@ -1,6 +1,6 @@
 #include "basic_timers.h"
-#include "_stm32f446re_registers.h"
-#include "_stm32f446re_system.h"
+#include "registers_stm32f446re.h"
+#include "system_stm32f446re.h"
 #include "_NVIC.h"
 #include "_GCC_ARM_ASM_intrinsics.h"
 #include <stdlib.h>
@@ -47,7 +47,7 @@ static bool _BTIM_params_are_valid(BTIM_module const timer
 	bool params_are_valid = false;
 
 	if (  ((timer == BTIM_module_TIM6) || (timer == BTIM_module_TIM7))
-		&& (cnfg.timer_freq > 0)
+		&& (cnfg.timer_freq >= 0)
 		&& (cnfg.auto_reload_val >= 1 && cnfg.auto_reload_val <= 65535)
 	) {
 		params_are_valid = true;
@@ -108,7 +108,7 @@ __attribute__((always_inline)) static inline uint32_t * _BTIM_compute_EGR_addr(B
  */
 static uint16_t _BTIM_convert_freq_to_PSC(uint32_t const freq)
 {
-	uint32_t APB1_freq = _SYS_APB1_clk();
+	uint32_t APB1_freq = APB1_bus_clock;
 	return (uint16_t)((APB1_freq / freq) - 1);
 }
 
@@ -144,7 +144,8 @@ static void _BTIM_init_timer_set_prescaler(BTIM_module const timer
 	, BTIM_cnfg const cnfg
 ) {
 	uint32_t volatile * const TIMx_PSC_addr  = _BTIM_compute_PSC_addr(timer);
-	*TIMx_PSC_addr = _BTIM_convert_freq_to_PSC(cnfg.timer_freq);
+	//*TIMx_PSC_addr = _BTIM_convert_freq_to_PSC(cnfg.timer_freq);
+	*TIMx_PSC_addr |= (cnfg.timer_freq + 1) & (0xFFFFU);
 }
 
 /*! Updates the first configuration option with the timer's configuration options.

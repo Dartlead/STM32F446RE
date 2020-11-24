@@ -1,23 +1,23 @@
 #include <stdint.h>
+#include "system_stm32f446re.h"
 
 /* ============================================================================================================= */
 /* External References                                                                                           */
 /* ============================================================================================================= */
-extern int main(void) __attribute__((noreturn));
-extern void system_init(void);
+extern int main(void);
 
 /* ============================================================================================================= */
 /* Memory Region Symbols (Provided by Linker Script)                                                             */
 /* ============================================================================================================= */
-extern uint32_t __vector_end;   /* End of the vector table   */
-extern uint32_t __vector_size;  /* Size of the vector table  */
-extern uint32_t __etext;        /* End of text segment       */
-extern uint32_t __data_start__; /* Start of the data segment */
-extern uint32_t __data_end__;   /* End of the data segment   */
-extern uint32_t __bss_start__;  /* Start of the bss segment  */
-extern uint32_t __bss_end__;    /* End of the bss segment    */
-extern uint32_t __stack_top;    /* Top of stack              */
-extern uint32_t __stack_limit;  /* Max address of the stack  */
+extern uint32_t __vector_end;   //!# End of the vector table
+extern uint32_t __vector_size;  //!# Size of the vector table
+extern uint32_t __etext;        //!# End of text segment
+extern uint32_t __data_start__; //!# Start of the data segment
+extern uint32_t __data_end__;   //!# End of the data segment
+extern uint32_t __bss_start__;  //!# Start of the bss segment
+extern uint32_t __bss_end__;    //!# End of the bss segment
+extern uint32_t __stack_top;    //!# Top of stack
+extern uint32_t __stack_limit;  //!# Max address of the stack 
 
 /* ============================================================================================================= */
 /* User Initial Stack                                                                                            */
@@ -135,6 +135,8 @@ void FMPI2C1_error_handler(void)       __attribute__((weak, alias("default_handl
 /* ============================================================================================================= */
 /* Interrupt Vector Table                                                                                        */
 /* ============================================================================================================= */
+/*! The least significant bit of each vector must be 0b1 to indicate that the exception handler is thumb code.
+ */
 __attribute__((section(".vector_table"))) void (* const __vector_table[])(void) = {
 	/* Processor Exceptions         Description                                  Priority            Address     */
 	(void (*)(void))&__stack_top /* Initial Stack Pointer                        N/A                 0x0000 0000 */
@@ -265,7 +267,6 @@ __attribute__((section(".vector_table"))) void (* const __vector_table[])(void) 
 __attribute__((optimize("O2"))) void reset_handler(void)
 {
 	uint32_t * p_src = 0, * p_dest = 0;
-	int main_ret = 0;
 
 	/* Copy single ROM .data section (includes vector table) to start of .data section in RAM */
 	for (p_src = &__etext, p_dest = &__data_start__; p_dest < &__data_end__;) {
@@ -276,13 +277,14 @@ __attribute__((optimize("O2"))) void reset_handler(void)
 	for (p_dest = &__bss_start__; p_dest < &__bss_end__;) {
 		*p_dest++ = 0ul;
 	}
-
-	system_init();
-
-	main_ret = main();
+	
+	system_init_status sys_init_stat = system_init();
+	int main_ret = main();
+	
 	(void)main_ret;
-
-	while (1);
+	(void)sys_init_stat;
+	
+	while(1);
 }
 
 /* ============================================================================================================= */
