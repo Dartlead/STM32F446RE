@@ -169,8 +169,8 @@ static void _GPIO_configure_port_pin_set_AF(GPIO_port const port
 ) {
 	uint32_t volatile * const GPIOx_AFRL_addr = _GPIO_compute_AFRL_addr(port);
 	uint32_t volatile * const GPIOx_AFRH_addr = _GPIO_compute_AFRH_addr(port);
-	uint32_t const pin_shift_amnt = pin * 4; //How many bit shifts needed to change the register for the desired pin
-	uint32_t accum_AFR_val = 0;              //Holds accumulated AFRL/H writes
+	uint32_t const pin_shift_amnt = (pin <= 7) ? (pin * 4) : ((pin - 8) * 4);
+	uint32_t accum_AFR_val = 0; //Holds accumulated AFRL/H writes
 
 	if (pin <= 7) { //AFRL
 		accum_AFR_val = *GPIOx_AFRL_addr; //Initialize to register's current value
@@ -305,6 +305,7 @@ static void _GPIO_configure_port_pin_set_pull(GPIO_port const port
 /*! Configures and initializes the desired GPIO port and pin with the desired configuration.
  *
  * @brief Read the comments on each sub function to determine its purpose in the configuration of the timer module.
+ * @note  You MUST set the alternate function before setting the mode. Otherwise you will see glitches on the line.
  */
 void GPIO_configure_port_pin(GPIO_port const port
 	, uint32_t const pin
@@ -313,8 +314,8 @@ void GPIO_configure_port_pin(GPIO_port const port
 	if (_GPIO_params_are_valid(port, pin, cnfg)) {
 		RCC_AHB1ENR |= 0x1 << port; //Enable the clock to the GPIO port
 
-		_GPIO_configure_port_pin_set_mode(port, pin, cnfg);
 		_GPIO_configure_port_pin_set_AF(port, pin, cnfg);
+		_GPIO_configure_port_pin_set_mode(port, pin, cnfg);
 		_GPIO_configure_port_pin_set_output_type(port, pin, cnfg);
 		_GPIO_configure_port_pin_set_output_speed(port, pin, cnfg);
 		_GPIO_configure_port_pin_set_pull(port, pin, cnfg);

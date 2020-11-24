@@ -86,6 +86,7 @@ void USART_init_channel(USART_channel const channel
 /*! Writes a byte or 9-bits (depending on word length) to the USART channel.
  *
  * @note  This call is blocking. It will continually spin until there is room for the outgoing data.
+ * @note  The data gets sent out least significant bit first.
  *
  * @param channel
  *    (input) Which of the onboard USART channels to write to.
