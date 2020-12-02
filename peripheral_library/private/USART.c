@@ -1,7 +1,7 @@
 #include "USART.h"
 #include "GPIO.h"
-#include "_stm32f446re_registers.h"
-#include "_stm32f446re_system.h"
+#include "registers_stm32f446re.h"
+#include "system_stm32f446re.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -430,9 +430,9 @@ static void _USART_init_channel_set_baud_rate(USART_channel const channel
 
 	/* Determine fCK depending on the desired USART channel */
 	if ((channel >= USART_channel2) && (channel <= UART_channel5)) {
-		fCK = _SYS_APB1_clk();
+		fCK = APB1_bus_clock;
 	} else {
-		fCK = _SYS_APB2_clk();
+		fCK = APB2_bus_clock;
 	}
 
 	/* Compute the floating-point USARTDIV */
@@ -443,7 +443,7 @@ static void _USART_init_channel_set_baud_rate(USART_channel const channel
 	}
 
 	temp_fractional = modff(USARTDIV, &DIV_mantissa); //Breakup the USARTDIV into fractional/integral parts
-	temp_fractional *= (OVER8) ? 16 : 8;              //Scale fractional by the oversampling rate
+	temp_fractional *= (OVER8) ? 8 : 16;              //Scale fractional by the oversampling rate
 	temp_fractional = roundf(temp_fractional);        //Round the fractional to the nearest whole number
 
 	/* Check for overflow */
@@ -456,6 +456,7 @@ static void _USART_init_channel_set_baud_rate(USART_channel const channel
 
 	/* Combine the mantissa and fractional and write to the BRR register */
 	*USARTx_BRR_addr = (((uint32_t)DIV_mantissa + DIV_fractional_ovrflw) << 4) + DIV_fractional;
+	//*USARTx_BRR_addr = 0x0683;
 }
 
 /*! Sets the desired number of stop bits for the channel.
