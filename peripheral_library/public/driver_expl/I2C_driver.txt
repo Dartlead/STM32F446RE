@@ -1,0 +1,47 @@
+-------------------------------------------------------------------------------------------------------------------
+I2C Pin Configurations Explained
+-------------------------------------------------------------------------------------------------------------------
+Each I2C interface has multiple sets of pins that it can use for its SDA and SCL signals. The breakdown of which
+interface can use what pins and the associated pin configuration number is described below.
+
+I2C1
+Pin Config 1 | Pin Config 2
+SDA - PB7    | SDA - PB9
+SCL - PB6    | SCL - PB8
+
+I2C2
+Pin Config 1 | Pin Config 2
+SDA - PB11   | SDA - PF0
+SCL - PB10   | SCL - PF1
+
+I2C3
+Pin Config 1 | Pin Config 2
+SDA - PB4    | SDA - N/A
+SCL - PA8    | SCL - N/A
+
+-------------------------------------------------------------------------------------------------------------------
+I2C Interface Configuration Parameters Explained
+-------------------------------------------------------------------------------------------------------------------
+SCL_freq (SCL frequency)
+	The frequency (in hertz) of the SCL clock.
+
+	Restrictions:
+		- Must be either 100000 (100 kHz, SM mode) or 400000 (400 kHz, FM mode) as only SM and FM modes are
+			supported by all of the I2C interfaces.
+
+
+FM_duty_cycle (I2C Fast Mode duty cycle)
+	The ratio of time SCL spends high vs low. The I2C spec calls for the following duty cycle for SM and FM modes:
+	|------------------------------------|
+	|        |      SM     |      FM     |
+	|        |  Min  | Max |  Min  | Max |
+	|--------|-------|-----|-------|-----|
+	| T_low  | 4.7us | N/A | 1.3us | N/A |
+	| T_high | 4.0us | N/A | 0.6us | N/A |
+	|------------------------------------|
+
+	Thus 'kI2C_SM_no_duty' is a ratio of 1, 'kI2C_FM_duty_2' is a ratio of 2, and 'kI2C_FM_duty_16_9' is a ratio of
+	16/9.
+
+pinout (I2C pinout configuration)
+	Which SDA/SCL pin configuration to use for allocating physical GPIO pins.
